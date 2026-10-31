@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#16141C">
 <title>Kiosco de asistencia</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   /* Kiosco de asistencia de Control de Personal.
      Se publica fuera de Google (GitHub Pages) para poder usar la cámara en vivo.
@@ -20,12 +21,19 @@
   .reloj{text-align:right}
   #hora{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
   #fecha{color:var(--muted);font-size:.8rem;text-transform:capitalize;margin-top:2px}
-  main{flex:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:16px}
+  body.camara main{justify-content:flex-start}
+  body.camara #msg{min-height:130px}
   #lector{width:min(460px,100%);border-radius:16px;overflow:hidden;background:#000;border:1px solid var(--line);position:relative}
   #lector video{border-radius:16px}
-  #msg{width:min(460px,100%);min-height:118px;border-radius:16px;padding:16px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transition:background .2s}
-  #msg h1{font-size:1.5rem;margin:2px 0;letter-spacing:-.01em}
-  #msg p{color:var(--muted);font-size:1rem}
+  #lector{display:none}
+  #lector.on{display:block}
+  .icono svg{width:64px;height:64px;color:var(--primary)}
+  .acts.col{flex-direction:column;align-items:center}
+  .acts.col button{min-width:230px;font-size:1.05rem;padding:14px 22px}
+  #msg{width:min(520px,100%);min-height:250px;border-radius:22px;padding:28px 22px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transition:background .2s}
+  #msg h1{font-size:1.9rem;margin:2px 0;letter-spacing:-.01em}
+  #msg p{color:var(--muted);font-size:1.15rem}
   #msg .sent{color:var(--gain);text-transform:uppercase;letter-spacing:.12em;font-weight:800;font-size:.85rem}
   #msg .hora{font-size:2.4rem;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
   #msg.ok{background:color-mix(in srgb,var(--gain) 22%,var(--surface));border-color:var(--gain)}
@@ -34,7 +42,13 @@
   button{font:inherit;cursor:pointer;border-radius:10px;padding:11px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-weight:600}
   button.pri{background:var(--primary);border-color:var(--primary)}
   #scan{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
-  .err{margin:auto;padding:24px;text-align:center;max-width:520px}
+  .err{margin:auto;align-self:center;padding:24px;text-align:center;max-width:520px;width:100%}
+  .otro{position:fixed;right:12px;bottom:12px;font-size:.8rem;padding:7px 11px;opacity:.75}
+  #compartir{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;padding:16px;z-index:11}
+  #compartir .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(380px,100%);text-align:center}
+  #compartir h2{font-size:1.15rem;margin-bottom:6px}
+  #compartir p{color:var(--muted);font-size:.9rem}
+  #qrEnlace{background:#fff;padding:12px;border-radius:12px;width:max-content;margin:14px auto}
   .err h1{margin-bottom:10px}
   .err p{color:var(--muted)}
   #pinBox{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
@@ -57,6 +71,7 @@
   <div id="msg"><h1>Preparando…</h1></div>
 </main>
 <input id="scan" autocomplete="off" aria-label="Código del carnet">
+<div id="compartir"><div class="card"><h2>Conectar otro equipo</h2><p>En el otro celular o tablet, abre la cámara y apunta a este código. Se abre el kiosco ya conectado, sin pegar nada.</p><div id="qrEnlace"></div><div class="acts"><button id="copEnl">Copiar enlace</button><button class="pri" id="cerrarComp">Listo</button></div></div></div>
 <div id="pinBox"><form class="card" id="pinForm" autocomplete="off">
   <h2>Marcar con código y PIN</h2>
   <label>Tu código de empleado<input id="pinCod" autocapitalize="characters" placeholder="Ej. S-133"></label>
@@ -158,13 +173,22 @@
     var cfg = { fps: 12, disableFlip: false, qrbox: function (w, h) { var m = Math.floor(Math.min(w, h) * .8); return { width: m, height: m }; } };
     var cam = camaras.length ? { deviceId: { exact: camaras[camIdx].id } } : { facingMode: ls.get('kio_cam') === 'user' ? 'user' : 'environment' };
     if (lector) { try { lector.stop().catch(function () {}); } catch (e) {} }
+    document.getElementById('lector').classList.add('on'); document.body.classList.add('camara');
     lector = new Html5Qrcode('lector', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128], verbose: false });
     lector.start(cam, cfg, leido, function () {}).then(function () {
-      document.getElementById('bCam').textContent = 'Cambiar cámara';
+      document.getElementById('lector').classList.add('on'); document.body.classList.add('camara');
+      document.getElementById('bCam').textContent = 'Cambiar cámara'; document.getElementById('bCerrar').style.display = '';
       try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {}
     }).catch(function (e) {
+      document.getElementById('lector').classList.remove('on'); document.body.classList.remove('camara');
       mostrar('mal', '<h1>No se pudo abrir la cámara</h1><p>Permite el acceso a la cámara para esta página y vuelve a intentar.</p>');
     });
+  }
+  function cerrarCamara() {
+    if (lector) { try { lector.stop().catch(function () {}); } catch (e) {} lector = null; }
+    document.getElementById('lector').classList.remove('on'); document.body.classList.remove('camara');
+    document.getElementById('bCam').textContent = 'Escanear con la cámara'; document.getElementById('bCerrar').style.display = 'none';
+    ls.set('kio_auto', null);
   }
   function cambiarCamara() {
     if (!lector || !lector.isScanning) return iniciarCamara();
@@ -218,15 +242,34 @@
     document.getElementById('punto').textContent = info.punto + (info.sucursal ? ' · ' + info.sucursal : '');
     reloj(); setInterval(reloj, 1000);
     var codigos = info.qr || info.barras;
-    inicial = codigos ? '<h1>Acerca tu carnet a la cámara</h1><p>La entrada o salida se registra sola.</p>' : '<h1>Marca con tu código y PIN</h1>';
-    app.innerHTML = (codigos ? '<div id="lector"></div>' : '') + '<div id="msg">' + inicial + '</div><div class="acts">' +
-      (codigos ? '<button class="pri" id="bCam">Iniciar cámara</button>' : '') + (info.pin ? '<button id="bPin">Marcar con código y PIN</button>' : '') + '</div>';
+    var reloj_ = '<div class="icono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>';
+    inicial = reloj_ + (codigos ? '<h1>Acerca tu carnet al lector</h1><p>La entrada o salida se registra sola.</p>' : '<h1>Marca con tu código y PIN</h1>');
+    app.innerHTML = (codigos ? '<div id="lector"></div>' : '') + '<div id="msg">' + inicial + '</div><div class="acts col">' +
+      (codigos ? '<button id="bCam">Escanear con la cámara</button><button id="bCerrar" style="display:none">Cerrar cámara</button>' : '') + (info.pin ? '<button id="bPin">Marcar con código y PIN</button>' : '') + '</div>';
     msg = document.getElementById('msg');
-    var bc = document.getElementById('bCam'); if (bc) bc.onclick = cambiarCamara;
+    var bc = document.getElementById('bCam'); if (bc) bc.onclick = function () { ls.set('kio_auto', '1'); cambiarCamara(); };
+    var bx = document.getElementById('bCerrar'); if (bx) bx.onclick = cerrarCamara;
     var bp = document.getElementById('bPin'); if (bp) bp.onclick = abrirPin;
+    // Conectar otro equipo: un QR con el enlace completo de este kiosco (abre ya configurado)
+    var enlace = location.origin + location.pathname + '?k=' + encodeURIComponent(CLAVE) + '&s=' + encodeURIComponent(SERVICIO);
+    var bo = document.createElement('button'); bo.className = 'otro'; bo.textContent = 'Conectar otro equipo'; document.body.appendChild(bo);
+    bo.onclick = function () {
+      var box = document.getElementById('compartir'), q = document.getElementById('qrEnlace');
+      q.innerHTML = '';
+      if (window.QRCode) new QRCode(q, { text: enlace, width: 230, height: 230, correctLevel: QRCode.CorrectLevel.L });
+      else q.textContent = 'Usa Copiar enlace y envíalo por WhatsApp.';
+      box.style.display = 'flex';
+    };
+    document.getElementById('cerrarComp').onclick = function () { document.getElementById('compartir').style.display = 'none'; };
+    document.getElementById('copEnl').onclick = function () {
+      var b = this;
+      (navigator.clipboard ? navigator.clipboard.writeText(enlace) : Promise.reject()).then(function () { b.textContent = 'Copiado'; }, function () { prompt('Copia este enlace:', enlace); });
+    };
+    // Si se abrió con el enlace completo, se limpia la dirección para que la clave no quede a la vista
+    if (location.search) try { history.replaceState(null, '', location.pathname); } catch (e) {}
     if (codigos) {
       if (typeof Html5Qrcode === 'undefined') { mostrar('mal', '<h1>Sin lector de QR</h1><p>No se pudo cargar el lector. Revisa el internet y recarga la página.</p>'); }
-      else iniciarCamara();
+      else if (ls.get('kio_auto') === '1') iniciarCamara();   // si la última vez la dejaron abierta, se abre sola
       document.addEventListener('click', function () { setTimeout(enfocar, 50); }); setInterval(enfocar, 2000); enfocar();
     }
   });

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16141C">
+<title>Kiosco de asistencia</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  /* Kiosco de asistencia de Control de Personal.
+     Se publica fuera de Google (GitHub Pages) para poder usar la cámara en vivo.
+     No hace falta editar nada: el enlace que copia el sistema ya trae la clave del kiosco (k) y la dirección del sistema (s). */
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#0E0D12;--surface:#1E1C26;--line:#2E2B38;--ink:#fff;--muted:#A7A4B5;--primary:#6D4AFF;--gain:#2FD6B5;--loss:#FF6B8B;--warn:#F5D922}
+  html,body{background:var(--bg);color:var(--ink);font-family:Inter,'Segoe UI',Roboto,Arial,sans-serif;min-height:100%}
+  body{min-height:100vh;display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:14px 18px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .emp{font-weight:800;font-size:1rem}
+  .punto{color:var(--muted);font-size:.85rem}
+  .reloj{text-align:right}
+  #hora{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+  #fecha{color:var(--muted);font-size:.8rem;text-transform:capitalize;margin-top:2px}
+  main{flex:1;display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}
+  #lector{width:min(460px,100%);border-radius:16px;overflow:hidden;background:#000;border:1px solid var(--line);position:relative}
+  #lector video{border-radius:16px}
+  #msg{width:min(460px,100%);min-height:118px;border-radius:16px;padding:16px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transition:background .2s}
+  #msg h1{font-size:1.5rem;margin:2px 0;letter-spacing:-.01em}
+  #msg p{color:var(--muted);font-size:1rem}
+  #msg .sent{color:var(--gain);text-transform:uppercase;letter-spacing:.12em;font-weight:800;font-size:.85rem}
+  #msg .hora{font-size:2.4rem;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  #msg.ok{background:color-mix(in srgb,var(--gain) 22%,var(--surface));border-color:var(--gain)}
+  #msg.mal{background:color-mix(in srgb,var(--loss) 20%,var(--surface));border-color:var(--loss)}
+  .acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  button{font:inherit;cursor:pointer;border-radius:10px;padding:11px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-weight:600}
+  button.pri{background:var(--primary);border-color:var(--primary)}
+  #scan{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+  .err{margin:auto;padding:24px;text-align:center;max-width:520px}
+  .err h1{margin-bottom:10px}
+  .err p{color:var(--muted)}
+  #pinBox{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+  #pinBox .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(360px,100%)}
+  #pinBox h2{font-size:1.15rem;margin-bottom:10px}
+  #pinBox label{display:block;color:var(--muted);font-size:.85rem;margin-top:8px}
+  #pinBox input{width:100%;font-size:1.3rem;text-align:center;letter-spacing:.1em;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-top:4px}
+  .teclas{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .teclas button{font-size:1.3rem;padding:12px 0}
+  .pie{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  @media (max-width:520px){#hora{font-size:1.5rem}}
+</style>
+</head>
+<body>
+<header>
+  <div><div class="emp" id="empresa">Kiosco de asistencia</div><div class="punto" id="punto">Conectando…</div></div>
+  <div class="reloj"><div id="hora"></div><div id="fecha"></div></div>
+</header>
+<main id="app">
+  <div id="msg"><h1>Preparando…</h1></div>
+</main>
+<input id="scan" autocomplete="off" aria-label="Código del carnet">
+<div id="pinBox"><form class="card" id="pinForm" autocomplete="off">
+  <h2>Marcar con código y PIN</h2>
+  <label>Tu código de empleado<input id="pinCod" autocapitalize="characters" placeholder="Ej. S-133"></label>
+  <label>PIN<input id="pinVal" type="password" inputmode="numeric" maxlength="8"></label>
+  <div class="teclas" id="teclas"></div>
+  <div class="pie"><button type="button" id="pinNo">Cancelar</button><button type="submit" class="pri">Marcar</button></div>
+</form></div>
+<script>
+(function () {
+  var app = document.getElementById('app'), msg = document.getElementById('msg');
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var ls = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} } };
+  // Enlace del kiosco: el mismo que copia el sistema en Configuración → Asistencia → "Copiar enlace" (…/exec?k=CLAVE).
+  // Se pega una sola vez en este equipo y queda guardado. También puede venir en la dirección: kiosco.html?k=CLAVE&s=…/exec
+  function leerEnlace(texto) {
+    try {
+      var u = new URL(String(texto || '').trim());
+      var k = (u.searchParams.get('k') || '').replace(/[^A-Za-z0-9]/g, '');
+      if (u.hostname !== 'script.google.com' || !/^[/]macros[/]s[/][^/]+[/](exec|dev)$/.test(u.pathname) || !k) return null;
+      return { k: k, s: u.origin + u.pathname };
+    } catch (e) { return null; }
+  }
+  var Q = new URLSearchParams(location.search), CFG = null;
+  if (Q.get('k') && Q.get('s')) CFG = leerEnlace(Q.get('s') + '?k=' + Q.get('k'));
+  if (!CFG) { try { CFG = JSON.parse(ls.get('kio_cfg') || 'null'); } catch (e) { CFG = null; } }
+  function configurar(error) {
+    document.getElementById('punto').textContent = 'Configurar este equipo';
+    app.innerHTML = '<div class="err" style="max-width:480px"><h1>Conectar este kiosco</h1><p>En el sistema ve a <strong>Configuración → Asistencia</strong>, en tu kiosco toca <strong>Copiar enlace</strong> y pégalo aquí. Solo se hace una vez en este equipo.</p>' +
+      '<input id="cfgEnlace" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:1rem" placeholder="Pega aquí el enlace del kiosco">' +
+      (error ? '<p style="color:var(--loss);margin-top:10px">' + esc(error) + '</p>' : '') +
+      '<div class="acts" style="margin-top:14px"><button class="pri" id="cfgOk">Conectar</button></div></div>';
+    var inp = document.getElementById('cfgEnlace'); inp.focus();
+    document.getElementById('cfgOk').onclick = function () {
+      var c = leerEnlace(inp.value);
+      if (!c) { configurar('Ese no es el enlace del kiosco. Debe empezar con script.google.com y terminar con ?k= y una clave.'); return; }
+      ls.set('kio_cfg', JSON.stringify(c)); location.reload();
+    };
+  }
+  if (!CFG) { configurar(); return; }
+  if (Q.get('k')) ls.set('kio_cfg', JSON.stringify(CFG));
+  var CLAVE = CFG.k, SERVICIO = CFG.s;
+  function error(t, p) {
+    app.innerHTML = '<div class="err"><h1>' + esc(t) + '</h1><p>' + esc(p) + '</p><div class="acts" style="margin-top:16px"><button id="reint">Reintentar</button><button id="recfg">Cambiar enlace</button></div></div>';
+    document.getElementById('punto').textContent = '';
+    document.getElementById('reint').onclick = function () { location.reload(); };
+    document.getElementById('recfg').onclick = function () { ls.set('kio_cfg', null); location.href = location.pathname; };
+  }
+
+  // Llamada al sistema (JSONP: Apps Script no permite leer la respuesta con fetch desde otra página)
+  function api(params, cb) {
+    var n = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), s = document.createElement('script'), listo = false;
+    var fin = function (r) { if (listo) return; listo = true; delete window[n]; if (s.parentNode) s.parentNode.removeChild(s); cb(r); };
+    window[n] = fin;
+    params.k = CLAVE; params.callback = n;
+    s.src = SERVICIO + '?' + Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); }).join('&');
+    s.onerror = function () { fin({ ok: false, error: 'No hay conexión con el sistema. Revisa el internet.' }); };
+    setTimeout(function () { fin({ ok: false, error: 'El sistema tardó demasiado en responder. Intenta de nuevo.' }); }, 25000);
+    document.body.appendChild(s);
+  }
+
+  function sonido(ok) {
+    try { var a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = ok ? 880 : 220; g.gain.value = .2; o.connect(g); g.connect(a.destination); o.start(); setTimeout(function () { o.stop(); a.close(); }, ok ? 170 : 420); } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(ok ? 80 : [60, 60, 60]); } catch (e) {}
+  }
+
+  var info = null, desfase = 0, tVolver = null, ocupado = false, inicial = '';
+  function mostrar(cls, html) {
+    clearTimeout(tVolver); msg.className = cls; msg.innerHTML = html;
+    tVolver = setTimeout(function () { msg.className = ''; msg.innerHTML = inicial; }, cls === 'mal' ? 5000 : 3500);
+  }
+  function marcar(d) {
+    if (ocupado) return; ocupado = true;
+    msg.className = ''; msg.innerHTML = '<h1>Registrando…</h1>';
+    d.accion = 'kiosco_marcar';
+    api(d, function (r) {
+      ocupado = false;
+      if (!r || !r.ok) { sonido(false); mostrar('mal', '<h1>No se registró</h1><p>' + esc(r && r.error || 'Error desconocido') + '</p>'); return; }
+      var x = r.data; sonido(true);
+      mostrar('ok', x.repetida ? '<h1>' + esc(x.nombre) + '</h1><p class="hora">Ya marcaste a las ' + esc(x.hora) + '</p>'
+                               : '<p class="sent">' + esc(x.sentido) + '</p><h1>' + esc(x.nombre) + '</h1><p class="hora">' + esc(x.hora) + '</p>');
+    });
+  }
+
+  function reloj() {
+    var d = new Date(Date.now() + desfase);
+    document.getElementById('hora').textContent = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    document.getElementById('fecha').textContent = d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  // ---- cámara en vivo
+  var lector = null, camaras = [], camIdx = 0, ultimo = '', tUltimo = 0;
+  function leido(valor) {
+    var ahora = Date.now();
+    if (valor === ultimo && ahora - tUltimo < 8000) return;   // no marcar dos veces con el mismo carnet
+    ultimo = valor; tUltimo = ahora;
+    marcar({ modo: 'CODIGO', valor: valor });
+  }
+  function iniciarCamara() {
+    var cfg = { fps: 12, disableFlip: false, qrbox: function (w, h) { var m = Math.floor(Math.min(w, h) * .8); return { width: m, height: m }; } };
+    var cam = camaras.length ? { deviceId: { exact: camaras[camIdx].id } } : { facingMode: ls.get('kio_cam') === 'user' ? 'user' : 'environment' };
+    if (lector) { try { lector.stop().catch(function () {}); } catch (e) {} }
+    lector = new Html5Qrcode('lector', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128], verbose: false });
+    lector.start(cam, cfg, leido, function () {}).then(function () {
+      document.getElementById('bCam').textContent = 'Cambiar cámara';
+      try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {}
+    }).catch(function (e) {
+      mostrar('mal', '<h1>No se pudo abrir la cámara</h1><p>Permite el acceso a la cámara para esta página y vuelve a intentar.</p>');
+    });
+  }
+  function cambiarCamara() {
+    if (!lector || !lector.isScanning) return iniciarCamara();
+    Html5Qrcode.getCameras().then(function (cs) {
+      camaras = cs || [];
+      if (camaras.length < 2) { ls.set('kio_cam', ls.get('kio_cam') === 'user' ? 'environment' : 'user'); camaras = []; return iniciarCamara(); }
+      camIdx = (camIdx + 1) % camaras.length; ls.set('kio_cam_id', camaras[camIdx].id);
+      lector.stop().then(iniciarCamara).catch(iniciarCamara);
+    }).catch(function () { iniciarCamara(); });
+  }
+
+  // ---- PIN
+  function abrirPin() {
+    var b = document.getElementById('pinBox'); b.style.display = 'flex';
+    document.getElementById('pinCod').value = ''; document.getElementById('pinVal').value = '';
+    document.getElementById('pinCod').focus();
+  }
+  function cerrarPin() { document.getElementById('pinBox').style.display = 'none'; }
+  var activo = null;
+  ['pinCod', 'pinVal'].forEach(function (id) { document.getElementById(id).onfocus = function () { activo = this; }; });
+  document.getElementById('teclas').innerHTML = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Borrar', '0', 'OK'].map(function (t) { return '<button type="button" data-t="' + t + '">' + t + '</button>'; }).join('');
+  document.querySelectorAll('#teclas button').forEach(function (b) {
+    b.onclick = function () {
+      var t = b.getAttribute('data-t'), c = activo || document.getElementById('pinVal');
+      if (t === 'OK') { document.getElementById('pinForm').requestSubmit(); return; }
+      if (t === 'Borrar') c.value = c.value.slice(0, -1); else c.value += t;
+      c.focus();
+    };
+  });
+  document.getElementById('pinNo').onclick = cerrarPin;
+  document.getElementById('pinForm').onsubmit = function (ev) {
+    ev.preventDefault();
+    var cod = document.getElementById('pinCod').value.trim(), pin = document.getElementById('pinVal').value;
+    if (!cod || !pin) return;
+    cerrarPin(); marcar({ modo: 'PIN', valor: cod, pin: pin });
+  };
+
+  // ---- lector USB o Bluetooth (PC): escribe el código y un Enter
+  var scan = document.getElementById('scan');
+  var tactil = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  scan.onkeydown = function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); var v = scan.value.trim(); scan.value = ''; if (v) marcar({ modo: 'CODIGO', valor: v }); } };
+  function enfocar() { if (!tactil && document.getElementById('pinBox').style.display !== 'flex') scan.focus(); }
+
+  // ---- arranque
+  api({ accion: 'kiosco_info' }, function (r) {
+    if (!r || !r.ok) { error('Kiosco no disponible', r && r.error || 'No se pudo conectar con el sistema.'); return; }
+    info = r.data;
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(info.ahora);
+    if (m) desfase = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() - Date.now();
+    document.getElementById('empresa').textContent = info.empresa || 'Kiosco de asistencia';
+    document.getElementById('punto').textContent = info.punto + (info.sucursal ? ' · ' + info.sucursal : '');
+    reloj(); setInterval(reloj, 1000);
+    var codigos = info.qr || info.barras;
+    inicial = codigos ? '<h1>Acerca tu carnet a la cámara</h1><p>La entrada o salida se registra sola.</p>' : '<h1>Marca con tu código y PIN</h1>';
+    app.innerHTML = (codigos ? '<div id="lector"></div>' : '') + '<div id="msg">' + inicial + '</div><div class="acts">' +
+      (codigos ? '<button class="pri" id="bCam">Iniciar cámara</button>' : '') + (info.pin ? '<button id="bPin">Marcar con código y PIN</button>' : '') + '</div>';
+    msg = document.getElementById('msg');
+    var bc = document.getElementById('bCam'); if (bc) bc.onclick = cambiarCamara;
+    var bp = document.getElementById('bPin'); if (bp) bp.onclick = abrirPin;
+    if (codigos) {
+      if (typeof Html5Qrcode === 'undefined') { mostrar('mal', '<h1>Sin lector de QR</h1><p>No se pudo cargar el lector. Revisa el internet y recarga la página.</p>'); }
+      else iniciarCamara();
+      document.addEventListener('click', function () { setTimeout(enfocar, 50); }); setInterval(enfocar, 2000); enfocar();
+    }
+  });
+})();
+</script>
+</body>
+</html>

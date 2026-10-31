@@ -132,9 +132,32 @@
     document.body.appendChild(s);
   }
 
-  function sonido(ok) {
-    try { var a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.frequency.value = ok ? 880 : 220; g.gain.value = .2; o.connect(g); g.connect(a.destination); o.start(); setTimeout(function () { o.stop(); a.close(); }, ok ? 170 : 420); } catch (e) {}
-    try { if (navigator.vibrate) navigator.vibrate(ok ? 80 : [60, 60, 60]); } catch (e) {}
+  // Sonido: un solo AudioContext que se "despierta" con el primer toque en la pantalla
+  // (los navegadores no dejan sonar nada antes de que el usuario toque algo).
+  var AC = null;
+  function audio() {
+    try {
+      if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+      if (AC.state === 'suspended') AC.resume();
+    } catch (e) { AC = null; }
+    return AC;
+  }
+  ['click', 'touchstart', 'keydown'].forEach(function (ev) { document.addEventListener(ev, audio, { passive: true }); });
+  function tono(frec, ms, vol, cuando) {
+    var a = audio(); if (!a) return;
+    var t0 = a.currentTime + (cuando || 0), o = a.createOscillator(), g = a.createGain();
+    o.type = 'square'; o.frequency.value = frec;
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + ms / 1000);
+    o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0 + ms / 1000 + 0.02);
+  }
+  // 'leido': bip fuerte al leer el carnet; 'ok': doble bip agudo; 'mal': zumbido grave
+  function sonido(tipo) {
+    try {
+      if (tipo === 'leido') tono(1000, 250, 0.9);
+      else if (tipo === true || tipo === 'ok') { tono(1400, 120, 0.9); tono(1800, 160, 0.9, 0.15); }
+      else { tono(220, 450, 0.9); }
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(tipo === false || tipo === 'mal' ? [80, 60, 80] : 90); } catch (e) {}
   }
 
   var info = null, desfase = 0, tVolver = null, ocupado = false, inicial = '';
@@ -167,6 +190,7 @@
     var ahora = Date.now();
     if (valor === ultimo && ahora - tUltimo < 8000) return;   // no marcar dos veces con el mismo carnet
     ultimo = valor; tUltimo = ahora;
+    sonido('leido');
     marcar({ modo: 'CODIGO', valor: valor });
   }
   function iniciarCamara() {

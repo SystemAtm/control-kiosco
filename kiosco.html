@@ -38,6 +38,8 @@
   #msg .hora{font-size:2.4rem;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
   #msg.ok{background:color-mix(in srgb,var(--gain) 22%,var(--surface));border-color:var(--gain)}
   #msg.mal{background:color-mix(in srgb,var(--loss) 20%,var(--surface));border-color:var(--loss)}
+  #msg.rep{background:color-mix(in srgb,var(--warn) 22%,var(--surface));border-color:var(--warn)}
+  #msg.rep .sent{color:var(--warn)}
   .acts{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   button{font:inherit;cursor:pointer;border-radius:10px;padding:11px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-weight:600}
   button.pri{background:var(--primary);border-color:var(--primary)}
@@ -155,6 +157,7 @@
     try {
       if (tipo === 'leido') tono(1000, 250, 0.9);
       else if (tipo === true || tipo === 'ok') { tono(1400, 120, 0.9); tono(1800, 160, 0.9, 0.15); }
+      else if (tipo === 'rep') { tono(900, 140, 0.9); tono(900, 140, 0.9, 0.22); tono(900, 140, 0.9, 0.44); }
       else { tono(220, 450, 0.9); }
     } catch (e) {}
     try { if (navigator.vibrate) navigator.vibrate(tipo === false || tipo === 'mal' ? [80, 60, 80] : 90); } catch (e) {}
@@ -172,8 +175,9 @@
     api(d, function (r) {
       ocupado = false;
       if (!r || !r.ok) { sonido(false); mostrar('mal', '<h1>No se registró</h1><p>' + esc(r && r.error || 'Error desconocido') + '</p>'); return; }
-      var x = r.data; sonido(true);
-      mostrar('ok', x.repetida ? '<h1>' + esc(x.nombre) + '</h1><p class="hora">Ya marcaste a las ' + esc(x.hora) + '</p>'
+      var x = r.data, rep = x.repetida || x.sentido === 'Marca repetida';
+      sonido(rep ? 'rep' : true);
+      mostrar(rep ? 'rep' : 'ok', rep ? '<p class="sent">Ya registrada</p><h1>' + esc(x.nombre) + '</h1><p class="hora">Ya marcaste a las ' + esc(x.hora) + '</p>'
                                : '<p class="sent">' + esc(x.sentido) + '</p><h1>' + esc(x.nombre) + '</h1><p class="hora">' + esc(x.hora) + '</p>');
     });
   }
